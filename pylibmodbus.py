@@ -42,6 +42,7 @@ class FdSet(Structure):
         ("fd_array", SOCKET*FD_SETSIZE)
     ]
 
+
 class ModbusBackendT(Structure):
     _fields_ = [
         ("backend_type", c_uint),
@@ -66,10 +67,24 @@ class ModbusBackendT(Structure):
     ]
 
 
+class ModbusMappingT(Structure):
+    _fields_ = [
+        ("nb_bits", c_int),
+        ("nb_input_bits", c_int),
+        ("nb_input_registers", c_int),
+        ("nb_registers", c_int),
+        ("tab_bits", c_uint8),
+        ("tab_input_bits", c_uint8),
+        ("tab_input_registers", c_uint8),
+        ("tab_registers", c_uint8),
+    ]
+
+
 class Modbus:
     def __init__(self):
         self.mb = POINTER(ModbusT)
-        self.libmodbus = CDLL("modbus.dll")
+        self.libmodbus = CDLL("modbus.dll", use_errno=True)
+        self.mapping = None
 
     def new_tcp(self, addr, port):
         self.mb = self.libmodbus.modbus_new_tcp(addr.encode("ascii"), port)
@@ -82,8 +97,37 @@ class Modbus:
         self.libmodbus.modbus_read_registers(self.mb, adr, count, r)
         return list(r)
 
+    def write_register(self, addr, value):
+        self.libmodbus.modbus_write_register(self.mb, addr, value)
+
+    def write_registers(self, addr, nb, values):
+
+        self.libmodbus.modbus_write_register(self.mb, addr, value)
+
     def close(self):
         self.libmodbus.modbus_close(self.mb)
 
     def free(self):
         self.libmodbus.modbus_free(self.mb)
+
+    def mapping_new(self, nb_bits, nb_input_bits, nb_registers, nb_input_registers):
+        self.mapping = self.libmodbus.modbus_mapping_new(nb_bits, nb_input_bits, nb_registers, nb_input_registers)
+
+    def mapping_free(self):
+        self.libmodbus.modbus_mapping_free(POINTER(self.mapping))
+
+    def receve(self):
+        req = POINTER(c_uint8)
+        length = self.libmodbus.modbus_receive(self.mb, req)
+        print("receve:", length, req)
+        return length, req
+
+    def reply(self, req_len):
+        req = POINTER(c_uint8)
+        length = self.libmodbus.modbus_reply(self.mb, req, req_len, POINTER(self.mapping))
+        print("reply: " + length)
+        return length
+
+    def strerror(self):
+        str_p = self.libmodbus.modbus_strerror(get_errno())
+        return str_p.value
