@@ -1,4 +1,5 @@
 from ctypes import *
+from struct import pack
 
 FD_SETSIZE = 64
 SOCKET = c_uint
@@ -81,33 +82,41 @@ class ModbusMappingT(Structure):
 
 
 class Modbus:
-    def __init__(self):
+    def __init__(self, path='modbus.dll'):
         self.mb = POINTER(ModbusT)
-        self.libmodbus = CDLL("modbus.dll", use_errno=True)
+        self.libmodbus = CDLL(path, use_errno=True)
         self.mapping = None
+
+        self.libmodbus.modbus_strerror.restype = c_char_p
 
     def new_tcp(self, addr, port):
         self.mb = self.libmodbus.modbus_new_tcp(addr.encode("ascii"), port)
+
+    def new_rtu(self, dev, baud, parity, data_bit, stop_bit):
+        self.mb = self.libmodbus.modbus_new_rtu(dev.encode("ascii"), baud, c_char(parity), data_bit, stop_bit)
+
+    def set_slave(self, addr):
+        self.libmodbus.modbus_set_slave(self.mb, addr)
 
     def connect(self):
         self.libmodbus.modbus_connect(self.mb)
 
     def read_registers(self, adr, count):
         r = create_unicode_buffer("", count)
-        self.libmodbus.modbus_read_registers(self.mb, adr, count, r)
+        if self.libmodbus.modbus_read_registers(self.mb, adr, count, r) == -1:
+            raise ModbusException(self.strerror())
         return list(r)
 
     def write_register(self, addr, value):
         self.libmodbus.modbus_write_register(self.mb, addr, value)
 
-    def write_registers(self, addr, nb, values):
-
-        self.libmodbus.modbus_write_register(self.mb, addr, value)
+    def write_registers(self, addr, values):
+        l = len(values)
+        if self.libmodbus.modbus_write_registers(self.mb, addr, l, pack("H" * l, *values)) == -1:
+            raise ModbusException(self.strerror())
 
     def close(self):
         self.libmodbus.modbus_close(self.mb)
-
-    def free(self):
         self.libmodbus.modbus_free(self.mb)
 
     def mapping_new(self, nb_bits, nb_input_bits, nb_registers, nb_input_registers):
@@ -129,5 +138,11 @@ class Modbus:
         return length
 
     def strerror(self):
-        str_p = self.libmodbus.modbus_strerror(get_errno())
-        return str_p.value
+        return self.libmodbus.modbus_strerror(get_errno())
+
+    def set_debug(self, val):
+        self.libmodbus.modbus_set_debug(self.mb, val)
+
+
+class ModbusException(Exception):
+    pass
